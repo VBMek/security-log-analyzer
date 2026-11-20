@@ -14,7 +14,7 @@ from pathlib import Path
 from .config import ConfigError, load_rules
 from .correlate import correlate_findings
 from .detectors import build_detectors
-from .models import EventKind, Severity
+from .models import EventKind, LogEvent, Severity
 from .parsers import parse_file
 from .report import (
     ReportStats,
@@ -29,8 +29,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="loganalyzer",
         description="Analyze log files for suspicious security activity.",
-        epilog="Exit code is 1 when --fail-on is given and a finding reaches "
-        "that severity; 2 on usage/configuration errors; 0 otherwise.",
+        epilog="Exit codes: 0 = nothing suspicious found (or all findings "
+        "below --fail-on), 1 = suspicious findings detected, "
+        "2 = usage/configuration/input error.",
     )
     parser.add_argument(
         "files", metavar="FILE", type=Path, nargs="+",
@@ -52,8 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fail-on", type=str.lower, metavar="SEVERITY",
         choices=[s.name.lower() for s in Severity],
-        help="exit 1 when any finding reaches this severity "
-        "(info|low|medium|high|critical)",
+        help="only findings at or above this severity trigger exit code 1 "
+        "(info|low|medium|high|critical; default: any finding triggers it)",
     )
     return parser
 
@@ -73,13 +74,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
 
     # 1) Parse every file into the normalized event stream.
-    events = [
-        event
-        for path in args.files
-        for event in parse_file(
-            path, default_year=config.default_year, default_tz=config.default_tz
-        )
-    ]
+    events: list[LogEvent] = []
+    try:
+        for path in args.files:
+            events.extend(
+                parse_file(
+                    path,
+                    default_year=config.default_year,
+                    default_tz=config.default_tz,
+                )
+            )
+    except OSError as exc:
+        print(f"error: cannot read log file: {exc}", file=sys.stderr)
+        return 2
 
     # 2) Feed the stream through every enabled detector.
     detectors = build_detectors(config)
@@ -110,15 +117,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         else render_text(findings, stats)
     )
     if args.output:
-        args.output.write_text(rendered, encoding="utf-8")
+        try:
+            args.output.write_text(rendered, encoding="utf-8")
+        except OSError as exc:
+            print(f"error: cannot write report: {exc}", file=sys.stderr)
+            return 2
     else:
         print(rendered, end="")
 
-    if args.fail_on is not None and any(
-        f.severity >= Severity.from_name(args.fail_on) for f in findings
-    ):
-        return 1
-    return 0
+    # Exit-code contract for CI: any finding at or above the --fail-on
+    # threshold (default: any finding at all) fails the run.
+    if args.fail_on is not None:
+        limit = Severity.from_name(args.fail_on)
+        failed = any(f.severity >= limit for f in findings)
+    else:
+        failed = bool(findings)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

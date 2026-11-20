@@ -18,7 +18,8 @@ class TestEndToEnd:
     def test_expected_findings_on_examples(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        assert main([WEB, AUTH]) == 0
+        # findings are present => exit code 1 (CI contract)
+        assert main([WEB, AUTH]) == 1
         out = capsys.readouterr().out
         # every mandated detection shows up in the report
         for rule in (
@@ -34,7 +35,7 @@ class TestEndToEnd:
     def test_json_output_is_parseable(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        assert main(["--format", "json", WEB, AUTH]) == 0
+        assert main(["--format", "json", WEB, AUTH]) == 1
         payload = json.loads(capsys.readouterr().out)
         assert payload["summary"]["files"] == [WEB, AUTH]
         assert payload["summary"]["malformed_events"] == 1
@@ -46,7 +47,7 @@ class TestEndToEnd:
         assert any(f["severity"] == "CRITICAL" for f in brute)
 
     def test_single_file_run(self, capsys: pytest.CaptureFixture[str]) -> None:
-        assert main([AUTH]) == 0
+        assert main([AUTH]) == 1
         out = capsys.readouterr().out
         assert "ssh_invalid_user" in out
         # no cross-file correlation possible with one file
@@ -56,7 +57,7 @@ class TestEndToEnd:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         target = tmp_path / "report.txt"
-        assert main(["--output", str(target), WEB]) == 0
+        assert main(["--output", str(target), WEB]) == 1
         assert "SECURITY LOG ANALYSIS REPORT" in target.read_text()
         assert capsys.readouterr().out == ""   # nothing on stdout
 
@@ -71,6 +72,42 @@ class TestEndToEnd:
             '"GET /index.html HTTP/1.1" 200 1234\n'
         )
         assert main(["--fail-on", "low", str(clean)]) == 0
+
+
+class TestExitCodes:
+    """The CI contract: 0 clean, 1 findings, 2 errors."""
+
+    def test_zero_on_clean_log(self, tmp_path: Path) -> None:
+        clean = tmp_path / "clean.log"
+        clean.write_text(
+            '1.2.3.4 - - [03/Jul/2025:10:00:01 +0000] '
+            '"GET /index.html HTTP/1.1" 200 1234\n'
+        )
+        assert main([str(clean)]) == 0
+
+    def test_one_when_findings_exist(self) -> None:
+        assert main([WEB, AUTH]) == 1
+        assert main([WEB]) == 1
+        assert main([AUTH]) == 1
+
+    def test_one_for_low_severity_findings(self, tmp_path: Path) -> None:
+        # a file whose only finding is LOW (malformed line)
+        low_only = tmp_path / "low.log"
+        low_only.write_text("[MALFORMED ENTRY - system restart\n")
+        assert main([str(low_only)]) == 1
+        assert main(["--fail-on", "low", str(low_only)]) == 1
+
+    def test_zero_when_findings_below_fail_on(self, tmp_path: Path) -> None:
+        low_only = tmp_path / "low.log"
+        low_only.write_text("[MALFORMED ENTRY - system restart\n")
+        assert main(["--fail-on", "medium", str(low_only)]) == 0
+        assert main(["--fail-on", "critical", str(low_only)]) == 0
+
+    def test_two_on_errors(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["/nonexistent/file.log"]) == 2
+        assert main(["--rules", "/nonexistent/r.yaml", WEB]) == 2
+        err = capsys.readouterr().err
+        assert "not found" in err
 
     def test_missing_input_file(
         self, capsys: pytest.CaptureFixture[str]
@@ -91,5 +128,5 @@ class TestEndToEnd:
         rules.write_text(
             "detectors:\n  request_rate_abuse:\n    enabled: false\n"
         )
-        assert main(["--rules", str(rules), WEB]) == 0
+        assert main(["--rules", str(rules), WEB]) == 1
         assert "request_rate_abuse" not in capsys.readouterr().out

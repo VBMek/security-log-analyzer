@@ -30,9 +30,15 @@ loganalyzer [--rules rules.yaml] [--format text|json] [--output FILE]
 | `--rules PATH` | YAML rules file; defaults to `./rules.yaml` when present, else built-in defaults |
 | `--format` | `text` (default) or `json` for SIEM/pipeline ingestion |
 | `--output` | write the report to a file instead of stdout |
-| `--fail-on` | exit `1` when any finding reaches the given severity (`info|low|medium|high|critical`) — useful in CI |
+| `--fail-on` | only findings at or above this severity (`info|low|medium|high|critical`) trigger exit `1` — default: any finding triggers it |
 
-Exit codes: `0` clean, `1` `--fail-on` threshold reached, `2` usage/config error.
+Exit codes for CI usage:
+
+| Code | Meaning |
+|---|---|
+| `0` | analysis ran, nothing suspicious found (or all findings below `--fail-on`) |
+| `1` | suspicious findings detected |
+| `2` | usage / configuration / input error (bad rules, missing or unreadable files) |
 
 ## Detection rules
 
