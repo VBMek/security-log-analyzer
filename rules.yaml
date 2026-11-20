@@ -1,0 +1,97 @@
+# Security log analyzer — detection rules.
+#
+# Every detector can be tuned or disabled here. The values below match the
+# built-in defaults; the file is deep-merged over them, so a partial override
+# works too. Use it via `--rules rules.yaml`, or edit it in place — it is
+# auto-loaded when the tool runs from the repository root.
+
+correlation:
+  # Maximum time distance between the same IP's activity in different files
+  # for their findings to be merged into one correlated incident.
+  window_seconds: 300
+  # Syslog timestamps carry no year/timezone; these defaults are applied.
+  default_year: 2025
+  default_utc_offset: "+00:00"
+
+detectors:
+
+  brute_force:
+    enabled: true
+    severity: HIGH              # failures only
+    success_severity: CRITICAL  # failures followed by a successful login
+    failure_threshold: 4        # >= N auth failures per IP within the window
+    window_seconds: 300
+    web_failure_statuses: [401, 403]
+    web_success_statuses: [200, 302]
+    login_paths: ["/login", "/signin", "/auth", "/wp-login.php"]
+    # Invalid-user SSH failures are reported by ssh_invalid_user instead;
+    # set true to also count them as brute-force failures.
+    count_invalid_users: false
+
+  sql_injection:
+    enabled: true
+    severity: HIGH
+    # Patterns match SQL *structure* — keywords, stacked statements, comment
+    # sequences — never a lone quote, so inputs like "O'Brien" stay clean.
+    # Applied to the percent-decoded request URI.
+    patterns:
+      - '(?i)\bunion\b[\s\S]*\bselect\b'
+      - '(?i)\b(select|insert|delete|update)\b[\s\S]*\b(from|into)\b'
+      - '(?i)\b(drop|alter|truncate)\s+table\b'
+      - '(?i);\s*(drop|delete|select|insert|update|exec)\b'   # stacked query
+      - '(?i)\b(or|and)\b\s+[\w'']+?\s*=\s*[\w'']+?'           # ' OR '1'='1
+      - "('--|\"--|/\\*|\\*/)"                                 # SQL comments
+
+  path_traversal:
+    enabled: true
+    severity: HIGH
+    # Applied to the percent-decoded request URI.
+    patterns:
+      - '\.\.[\\/]'      # ../ or ..\
+      - '\.\.;'          # Tomcat-style ..; bypass
+      - '/(etc/(passwd|shadow|hosts)|proc/|root/|boot\.ini|winnt|windows)'
+
+  directory_scan:
+    enabled: true
+    severity: MEDIUM
+    distinct_paths: 4         # >= N distinct probed paths per IP in window
+    window_seconds: 60
+    error_statuses: [400, 401, 403, 404]
+    # Well-known sensitive targets — counted as probes even without errors.
+    probe_paths:
+      - "/admin"
+      - "/administrator"
+      - "/wp-admin"
+      - "/wp-login.php"
+      - "/phpmyadmin"
+      - "/.env"
+      - "/.git"
+      - "/config.php"
+      - "/backup"
+      - "/server-status"
+
+  request_rate_abuse:
+    enabled: true
+    severity: MEDIUM
+    max_requests: 4           # flag when > N requests arrive within window
+    window_seconds: 5
+
+  ssh_invalid_user:
+    enabled: true
+    severity: MEDIUM
+    distinct_users: 3         # >= N distinct nonexistent usernames per IP
+    window_seconds: 300
+
+  suspicious_sudo:
+    enabled: true
+    severity: HIGH
+    sensitive_patterns:
+      - '/etc/(shadow|gshadow|sudoers|passwd)'
+      - '\b(useradd|userdel|usermod|visudo|passwd)\b'
+      - '\bchmod\s+(777|u\+s|4755)'
+      - '\b(bash|sh|zsh|dash|su)\s*$|\b(bash|sh|zsh)\s+-[a-zA-Z]*i'
+      - '\b(dd|nc|ncat|netcat|curl|wget)\b.*(/etc/|/root/)'
+
+  malformed_line:
+    enabled: true
+    severity: LOW
