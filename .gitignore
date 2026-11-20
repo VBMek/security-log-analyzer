@@ -1,0 +1,24 @@
+# Interview task description - local only, not part of the submission
+TASK.md
+
+# Devin CLI local configuration / skills
+.devin/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environment
+.venv/
+venv/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
