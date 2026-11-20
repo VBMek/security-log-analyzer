@@ -31,7 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Analyze log files for suspicious security activity.",
         epilog="Exit codes: 0 = nothing suspicious found (or all findings "
         "below --fail-on), 1 = suspicious findings detected, "
-        "2 = usage/configuration/input error.",
+        "2 = usage/configuration/input error. In --follow mode: 130 on "
+        "Ctrl+C, 1 when --fail-on is reached.",
     )
     parser.add_argument(
         "files", metavar="FILE", type=Path, nargs="+",
@@ -56,11 +57,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="only findings at or above this severity trigger exit code 1 "
         "(info|low|medium|high|critical; default: any finding triggers it)",
     )
+    parser.add_argument(
+        "-f", "--follow", action="store_true",
+        help="keep watching for appended lines and report new findings "
+        "live (like tail -f; Ctrl+C stops)",
+    )
+    parser.add_argument(
+        "--poll-seconds", type=float, default=1.0, metavar="SEC",
+        help="follow-mode poll interval in seconds (default: 1.0)",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.poll_seconds <= 0:
+        parser.error("--poll-seconds must be positive")
 
     try:
         config = load_rules(args.rules)
@@ -72,6 +85,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not path.is_file():
             print(f"error: log file not found: {path}", file=sys.stderr)
             return 2
+
+    # --follow keeps watching the files for appended lines.
+    if args.follow:
+        from .follow import follow_logs
+
+        return follow_logs(args, config)
 
     # 1) Parse every file into the normalized event stream.
     events: list[LogEvent] = []

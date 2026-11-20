@@ -46,6 +46,18 @@ def _decoded_path(uri: str) -> str:
     return unquote_plus(urlsplit(uri).path)
 
 
+def _prune_old(events: list[LogEvent], keep_seconds: int) -> list[LogEvent]:
+    """Drop events older than ``keep_seconds`` behind the newest one.
+
+    Bounds per-IP memory during long follow-mode runs; keeping 2x the
+    detection window preserves enough context for windowed matching.
+    """
+    if not events:
+        return events
+    cutoff = max(_ts(e) for e in events) - timedelta(seconds=keep_seconds)
+    return [e for e in events if _ts(e) >= cutoff]
+
+
 def _densest_window(times: list[datetime], window_seconds: int) -> tuple[int, int]:
     """Largest number of timestamps inside any ``window_seconds`` window.
 
@@ -143,6 +155,11 @@ class BruteForceDetector(BaseDetector):
 
     def finalize(self) -> list[Finding]:
         findings: list[Finding] = []
+        for ip in list(self._failures):
+            self._failures[ip] = _prune_old(self._failures[ip], self.window * 2)
+            self._successes[ip] = _prune_old(
+                self._successes.get(ip, []), self.window * 2
+            )
         for ip, fails in self._failures.items():
             fails.sort(key=_ts)
             count, start = _densest_window([_ts(e) for e in fails], self.window)
@@ -210,6 +227,8 @@ class SshInvalidUserDetector(BaseDetector):
 
     def finalize(self) -> list[Finding]:
         findings: list[Finding] = []
+        for ip in self._attempts:
+            self._attempts[ip] = _prune_old(self._attempts[ip], self.window * 2)
         for ip, events in self._attempts.items():
             ordered = sorted(events, key=_ts)
             best = _densest_distinct(ordered, self.window, lambda e: e.user or "")
@@ -415,6 +434,8 @@ class DirectoryScanDetector(BaseDetector):
 
     def finalize(self) -> list[Finding]:
         findings: list[Finding] = []
+        for ip in self._probes:
+            self._probes[ip] = _prune_old(self._probes[ip], self.window * 2)
         for ip, events in self._probes.items():
             best = _densest_distinct(
                 sorted(events, key=_ts), self.window, self._path_key
@@ -467,6 +488,8 @@ class RequestRateAbuseDetector(BaseDetector):
 
     def finalize(self) -> list[Finding]:
         findings: list[Finding] = []
+        for ip in self._requests:
+            self._requests[ip] = _prune_old(self._requests[ip], self.window * 2)
         for ip, events in self._requests.items():
             ordered = sorted(events, key=_ts)
             count, start = _densest_window(

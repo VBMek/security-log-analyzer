@@ -31,14 +31,34 @@ loganalyzer [--rules rules.yaml] [--format text|json] [--output FILE]
 | `--format` | `text` (default) or `json` for SIEM/pipeline ingestion |
 | `--output` | write the report to a file instead of stdout |
 | `--fail-on` | only findings at or above this severity (`info|low|medium|high|critical`) trigger exit `1` — default: any finding triggers it |
+| `-f`, `--follow` | keep watching for appended lines and stream new findings live (like `tail -f`) |
+| `--poll-seconds` | follow-mode poll interval, default `1.0` |
 
 Exit codes for CI usage:
 
 | Code | Meaning |
 |---|---|
 | `0` | analysis ran, nothing suspicious found (or all findings below `--fail-on`) |
-| `1` | suspicious findings detected |
+| `1` | suspicious findings detected (in `--follow`: `--fail-on` reached) |
 | `2` | usage / configuration / input error (bad rules, missing or unreadable files) |
+| `130` | `--follow` stopped via Ctrl+C |
+
+## Follow mode (live monitoring)
+
+```bash
+loganalyzer --follow /var/log/nginx/access.log /var/log/auth.log
+# watch-only-alerting at a severity threshold:
+loganalyzer --follow --fail-on high /var/log/nginx/access.log
+```
+
+The tool first runs a normal analysis on the current file contents, then
+keeps each file open (`tail -f` style) and streams **new** findings as
+compact alerts — already-reported findings are deduplicated by signature,
+while a severity escalation (e.g. HIGH → CRITICAL) still re-fires. With
+`--format json` each alert is emitted as one JSON object per line (JSONL).
+
+Follow mode is rotation-aware (inode/size change → reopen) and buffers
+partial lines, so a line is only analyzed once it is complete.
 
 ## Detection rules
 
