@@ -172,6 +172,24 @@ class TestSqlInjection:
         )
         assert len(findings) == 1
 
+    def test_time_based_blind_sqli_detected(self) -> None:
+        det = SqlInjectionDetector(_options("sql_injection"))
+        for payload in (
+            "/search?q=1 AND SLEEP(5)",
+            "/search?q=' OR SLEEP(5)--",
+            "/search?q=1; WAITFOR DELAY '0:0:5'",
+            "/search?q=1 AND (SELECT 1 FROM pg_sleep(5))",
+            "/search?q=x' AND BENCHMARK(5000000,MD5(1))--",
+        ):
+            assert len(_run(det, [self._feed(payload)])) == 1, payload
+            det = SqlInjectionDetector(_options("sql_injection"))
+
+    def test_time_based_keywords_without_call_syntax_clean(self) -> None:
+        det = SqlInjectionDetector(_options("sql_injection"))
+        # keywords alone ("sleep pills", "benchmark") are not function calls
+        for payload in ("/search?q=sleep pills", "/search?q=benchmark"):
+            assert _run(det, [self._feed(payload)]) == [], payload
+
     def test_obrien_false_positive_guard(self) -> None:
         det = SqlInjectionDetector(_options("sql_injection"))
         # A lone apostrophe inside a name must NOT raise a finding.

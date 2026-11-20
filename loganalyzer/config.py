@@ -62,6 +62,11 @@ DEFAULT_RULES: dict[str, Any] = {
                 r"(?i);\s*(drop|delete|select|insert|update|exec)\b",
                 r"(?i)\b(or|and)\b\s+[\w'\"]+\s*=\s*[\w'\"]+",
                 r"('--|\"--|/\*|\*/)",
+                # Time-based blind SQLi. The `\s*\(` requires function-call
+                # syntax, so plain words ("sleep pills", "benchmark") stay clean.
+                r"(?i)\b(sleep|benchmark|pg_sleep|dbms_lock\.sleep"
+                r"|dbms_pipe\.receive_message)\s*\(",
+                r"(?i)\bwaitfor\s+(delay|time)\b",
             ],
         },
         "path_traversal": {

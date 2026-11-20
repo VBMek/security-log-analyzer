@@ -41,6 +41,10 @@ detectors:
       - '(?i);\s*(drop|delete|select|insert|update|exec)\b'   # stacked query
       - '(?i)\b(or|and)\b\s+[\w'']+?\s*=\s*[\w'']+?'           # ' OR '1'='1
       - "('--|\"--|/\\*|\\*/)"                                 # SQL comments
+      # Time-based blind SQLi — the \s*\( requires function-call syntax,
+      # so plain words ("sleep pills", "benchmark") stay clean.
+      - '(?i)\b(sleep|benchmark|pg_sleep|dbms_lock\.sleep|dbms_pipe\.receive_message)\s*\('
+      - '(?i)\bwaitfor\s+(delay|time)\b'
 
   path_traversal:
     enabled: true
