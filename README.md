@@ -6,22 +6,34 @@ prints an actionable report.
 
 ## Quick start
 
+Requires Python 3.11+.
+
 ```bash
+# 1) create and activate a virtual environment
 python3.11 -m venv .venv
 source .venv/bin/activate
-pip install -e .            # runtime dependency: PyYAML only
 
-# analyze the bundled example logs
-python -m loganalyzer examples/webserver.log examples/auth.log
-# …or the installed console script
+# 2) install the tool (runtime dependency: PyYAML only)
+pip install -e .
+
+# 3) analyze the bundled example logs
 loganalyzer examples/webserver.log examples/auth.log
+# or equivalently:
+python -m loganalyzer examples/webserver.log examples/auth.log
 ```
+
+Expected: a report with 13 findings — a CRITICAL multi-file brute force
+from `10.0.0.50`, SQLi from `10.0.0.88`, scanning from `203.0.113.5` and
+`172.16.0.20`, a suspicious `sudo cat /etc/shadow`, and more — plus
+`correlated_activity` incidents tying the two files together. Exit code is
+`1` because findings were detected.
 
 ## Usage
 
 ```
 loganalyzer [--rules rules.yaml] [--format text|json] [--output FILE]
-            [--fail-on SEVERITY] FILE [FILE ...]
+            [--fail-on SEVERITY] [--follow] [--poll-seconds SEC]
+            FILE [FILE ...]
 ```
 
 | Option | Meaning |
@@ -62,9 +74,6 @@ partial lines, so a line is only analyzed once it is complete.
 
 ## Detection rules
 
-All rules live in `rules.yaml` (deep-merged over built-in defaults) and can be
-tuned or disabled without touching code:
-
 | Rule | What it catches | Severity |
 |---|---|---|
 | `brute_force` | ≥ N auth failures per IP in a window — web logins **and** SSH; a success after the failures escalates | HIGH → CRITICAL |
@@ -76,6 +85,64 @@ tuned or disabled without touching code:
 | `suspicious_sudo` | sudo commands matching sensitive patterns (`/etc/shadow`, shells, account tools) | HIGH |
 | `malformed_line` | lines matching no known format | LOW |
 | `correlated_activity` | same IP triggers rules in ≥ 2 files within the correlation window | max of children |
+
+## Configuring rules
+
+All rule behavior lives in YAML — shipped as `rules.yaml` at the repo root
+(auto-loaded when running from there; otherwise `--rules PATH`). The file
+is **deep-merged** over built-in defaults, so you only write the keys you
+want to change.
+
+A minimal override file:
+
+```yaml
+detectors:
+  request_rate_abuse:
+    max_requests: 20        # only flag really aggressive clients
+  malformed_line:
+    enabled: false          # silence a whole rule family
+correlation:
+  window_seconds: 120       # tighter cross-file correlation window
+```
+
+Common adjustments, by example:
+
+```yaml
+detectors:
+  sql_injection:
+    # add a signature — patterns match the percent-decoded URI
+    patterns:
+      - '(?i)\bxp_cmdshell\b'
+      - '(?i)\bload_file\s*\('
+
+  path_traversal:
+    patterns:
+      - '\.env'              # also flag direct .env grabs as traversal
+
+  directory_scan:
+    probe_paths:
+      - "/internal-only"     # treat internal path probing as scanning
+
+  suspicious_sudo:
+    sensitive_patterns:
+      - '\b(crontab|at)\b'   # persistence via scheduled jobs
+
+  brute_force:
+    failure_threshold: 3     # stricter: 3 failures already alert
+    count_invalid_users: true
+```
+
+Writing your own *pattern* is the main extension point:
+
+* `sql_injection.patterns`, `path_traversal.patterns` — Python regexes
+  applied to the percent-decoded request URI.
+* `suspicious_sudo.sensitive_patterns` — regexes applied to the sudo
+  `COMMAND=` string.
+* `directory_scan.probe_paths` — literal paths (not regex), normalized.
+
+Everything else (thresholds, windows, status codes, severities,
+`enabled` flags) is scalar tuning. New detector *types* require a small
+class in `loganalyzer/detectors.py` registered in `DETECTOR_TYPES`.
 
 ## Architecture
 
@@ -91,13 +158,39 @@ files ──▶ parsers.py ──▶ LogEvent stream ──▶ detectors.py ─�
 * **Cross-file correlation** — syslog timestamps get `correlation.default_year`
   / `default_utc_offset` from the config so both sources share one timeline.
 
-## Development & QA
+## Testing
 
 ```bash
 pip install -r requirements-dev.txt
-pytest            # unit + end-to-end tests
+
+pytest              # whole suite (76 tests)
+pytest -v           # one line per test
+pytest tests/test_detectors.py          # one module
+pytest -k obrien                        # tests matching a name
+```
+
+Suite layout — one module per concern, all under `tests/`:
+
+| File | Covers |
+|---|---|
+| `test_parsers.py` | both log formats, timestamps, malformed lines |
+| `test_detectors.py` | every rule incl. thresholds and FP guards (e.g. `O'Brien`) |
+| `test_correlate.py` | IP + time-window cross-file correlation |
+| `test_config.py` | rules.yaml loading, overrides, validation errors |
+| `test_cli.py` | end-to-end runs, JSON output, exit codes |
+| `test_follow.py` | live `--follow` alerting via subprocess |
+
+**Reading failures:** pytest prints the failing assert plus captured
+output — e.g. `never saw 'watch: following' — output was: …` dumps the
+child's stdout for follow tests. A green run ends with
+`76 passed in ~1s`.
+
+QA gates (all must pass before committing):
+
+```bash
+pytest            # tests
 ruff check .      # lint
-mypy              # type-check (strict for loganalyzer/)
+mypy              # strict type-check for loganalyzer/
 ```
 
 ## AI usage
