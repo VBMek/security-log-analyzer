@@ -22,3 +22,6 @@ venv/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# Generated scale-test logs (examples/*.log stays tracked intentionally)
+/*.log
