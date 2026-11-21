@@ -21,6 +21,9 @@ include = ["loganalyzer*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: multi-second scale tests (deselect with -m 'not slow')",
+]
 
 [tool.ruff]
 target-version = "py311"

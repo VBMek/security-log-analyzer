@@ -107,14 +107,13 @@ def attacks() -> list[tuple[datetime, str]]:
     return ev
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("-o", "--output", required=True)
-    ap.add_argument("-n", "--lines", type=int, default=200_000,
-                    help="number of normal-traffic lines (default 200000)")
-    ap.add_argument("--seed", type=int, default=42)
-    args = ap.parse_args()
-    rng = random.Random(args.seed)  # noqa: S311 - test data, not crypto
+def build_events(n_lines: int, seed: int) -> list[tuple[datetime, str]]:
+    """Build the whole log as sorted (timestamp, raw_line) events.
+
+    Shared by the CLI below and tests/test_perf.py so scale tests exercise
+    exactly the same planted attacks and decoys as manual runs.
+    """
+    rng = random.Random(seed)  # noqa: S311 - test data, not crypto
 
     events = attacks()
     # Legit monitoring poller: /health every 4s all day (dense but legal).
@@ -131,11 +130,11 @@ def main() -> None:
         for _ in range(1200)
     ]
     produced = 0
-    while produced < args.lines:
+    while produced < n_lines:
         ip = rng.choice(ips)
         t = DAY + timedelta(seconds=rng.uniform(0, 86399))
         for _ in range(rng.randint(1, 5)):
-            if produced >= args.lines or t >= DAY + timedelta(days=1):
+            if produced >= n_lines or t >= DAY + timedelta(days=1):
                 break
             status = rng.choice(STATUSES)
             path = (
@@ -156,6 +155,17 @@ def main() -> None:
         ))
 
     events.sort(key=lambda e: e[0])
+    return events
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("-o", "--output", required=True)
+    ap.add_argument("-n", "--lines", type=int, default=200_000,
+                    help="number of normal-traffic lines (default 200000)")
+    ap.add_argument("--seed", type=int, default=42)
+    args = ap.parse_args()
+    events = build_events(args.lines, args.seed)
     with open(args.output, "w") as fh:
         fh.writelines(raw + "\n" for _, raw in events)
     print(f"wrote {len(events)} lines to {args.output}")

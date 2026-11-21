@@ -164,7 +164,8 @@ files ──▶ parsers.py ──▶ LogEvent stream ──▶ detectors.py ─�
 ```bash
 pip install -r requirements-dev.txt
 
-pytest              # whole suite (76 tests)
+pytest              # whole suite (79 tests, ~15s incl. the scale test)
+pytest -m "not slow"  # skip the ~10s scale test, 78 tests in ~1s
 pytest -v           # one line per test
 pytest tests/test_detectors.py          # one module
 pytest -k obrien                        # tests matching a name
@@ -180,11 +181,12 @@ Suite layout — one module per concern, all under `tests/`:
 | `test_config.py` | rules.yaml loading, overrides, validation errors |
 | `test_cli.py` | end-to-end runs, JSON output, exit codes |
 | `test_follow.py` | live `--follow` alerting via subprocess |
+| `test_perf.py` | scale regression: all planted attacks found in ~140k lines, zero FPs (marked `slow`) |
 
 **Reading failures:** pytest prints the failing assert plus captured
 output — e.g. `never saw 'watch: following' — output was: …` dumps the
 child's stdout for follow tests. A green run ends with
-`76 passed in ~1s`.
+`79 passed in ~15s`.
 
 QA gates (all must pass before committing):
 
