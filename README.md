@@ -22,11 +22,12 @@ loganalyzer examples/webserver.log examples/auth.log
 python -m loganalyzer examples/webserver.log examples/auth.log
 ```
 
-Expected: a report with 13 findings — a CRITICAL multi-file brute force
-from `10.0.0.50`, SQLi from `10.0.0.88`, scanning from `203.0.113.5` and
-`172.16.0.20`, a suspicious `sudo cat /etc/shadow`, and more — plus
-`correlated_activity` incidents tying the two files together. Exit code is
-`1` because findings were detected.
+Expected: a report with 12 findings — a CRITICAL multi-file brute force
+from `10.0.0.50`, SQLi from `10.0.0.88`, traversal + SSH user-enumeration
+from `203.0.113.5`, a fast directory scan from `172.16.0.20`, a suspicious
+`sudo cat /etc/shadow`, and more — plus `correlated_activity` incidents
+tying the two files together. Exit code is `1` because findings were
+detected.
 
 ## Usage
 

@@ -122,8 +122,11 @@ class BruteForceDetector(BaseDetector):
         self.web_success_statuses = {
             int(s) for s in options.get("web_success_statuses", [200, 302])
         }
+        # Lowercased: some stacks (IIS, some frameworks) treat paths
+        # case-insensitively, and "/LOGIN" must not evade detection.
         self.login_paths = {
-            str(p).rstrip("/") for p in options.get("login_paths", ["/login"])
+            str(p).rstrip("/").lower()
+            for p in options.get("login_paths", ["/login"])
         }
         self.count_invalid_users = bool(options.get("count_invalid_users", False))
         self.success_severity = Severity.from_name(
@@ -136,7 +139,7 @@ class BruteForceDetector(BaseDetector):
         if not uri:
             return False
         # Compare only the path component; query strings are irrelevant here.
-        return (_decoded_path(uri).rstrip("/") or "/") in self.login_paths
+        return (_decoded_path(uri).rstrip("/").lower() or "/") in self.login_paths
 
     def feed(self, event: LogEvent) -> None:
         if event.ip is None or event.timestamp is None:
@@ -415,8 +418,14 @@ class DirectoryScanDetector(BaseDetector):
 
     @staticmethod
     def _path_key(event: LogEvent) -> str:
-        """Distinctness key: raw decoded path (query excluded)."""
-        return _decoded_path(event.path or "")
+        """Distinctness key: decoded path, query excluded, ``/`` folded.
+
+        ``/admin`` and ``/admin/`` address the same resource, so they count
+        once — otherwise a trailing-slash redirect would inflate the probe
+        count. Case is preserved: some servers treat ``/Admin`` and
+        ``/admin`` as different resources, so merging them could undercount.
+        """
+        return _decoded_path(event.path or "").rstrip("/") or "/"
 
     def feed(self, event: LogEvent) -> None:
         if (

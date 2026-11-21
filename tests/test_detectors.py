@@ -102,6 +102,19 @@ class TestBruteForce:
         assert len(findings) == 1
         assert findings[0].severity is Severity.CRITICAL
 
+    def test_login_path_case_insensitive(self) -> None:
+        det = BruteForceDetector(_options("brute_force"))
+        # "/LOGIN" is the same endpoint; case must not evade detection.
+        events = [
+            web(
+                f'10.0.0.60 - - [03/Jul/2025:10:00:0{s} +0000] '
+                '"GET /LOGIN HTTP/1.1" 401 54',
+                line_no=s,
+            )
+            for s in range(3, 7)
+        ]
+        assert len(_run(det, events)) == 1
+
     def test_non_login_paths_ignored(self) -> None:
         det = BruteForceDetector(_options("brute_force"))
         events = _web_requests("1.2.3.4", "/products", 401, range(0, 5))
@@ -253,6 +266,31 @@ class TestDirectoryScan:
             for i, p in enumerate(["/a", "/b", "/c"])
         ]
         assert _run(det, events) == []
+
+    def test_trailing_slash_variants_count_once(self) -> None:
+        # /admin and /admin/ are the same resource -> 3 distinct, quiet.
+        det = DirectoryScanDetector(_options("directory_scan"))
+        events = [
+            web(
+                f'172.16.0.30 - - [03/Jul/2025:10:00:{18+i} +0000] '
+                f'"GET {p} HTTP/1.1" 404 0',
+                line_no=i,
+            )
+            for i, p in enumerate(["/admin", "/admin/", "/a", "/b"])
+        ]
+        assert _run(det, events) == []
+
+        # Four genuinely distinct paths still fire.
+        det = DirectoryScanDetector(_options("directory_scan"))
+        events = [
+            web(
+                f'172.16.0.30 - - [03/Jul/2025:10:00:{18+i} +0000] '
+                f'"GET {p} HTTP/1.1" 404 0',
+                line_no=i,
+            )
+            for i, p in enumerate(["/admin", "/admin/", "/a", "/b", "/c"])
+        ]
+        assert len(_run(det, events)) == 1
 
     def test_successful_browsing_ignored(self) -> None:
         det = DirectoryScanDetector(_options("directory_scan"))
