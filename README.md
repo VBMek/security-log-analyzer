@@ -220,6 +220,7 @@ time loganalyzer scale-test.log --output /dev/null
 
 ## AI usage
 
-This tool was developed with AI assistance (Devin CLI), as invited by the
-task description. The conversation transcript is attached to the submission
-separately.
+This tool was developed with AI assistance (Devin CLI, model SWE-2 Max),
+as invited by the task description. The full conversation history —
+user prompts, agent reasoning, tool calls and results — is preserved in
+[`AI_HISTORY.md`](AI_HISTORY.md).
